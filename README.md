@@ -1,1 +1,1 @@
-# ch55x_mouse_jiggler
+# Mouse Jiggler for CH55x
