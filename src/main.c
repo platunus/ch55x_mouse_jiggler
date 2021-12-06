@@ -33,7 +33,7 @@ volatile __idata uint8_t sent;
 
 volatile __idata uint16_t count = 0;
 volatile __idata int8_t trigger = 0;
-volatile __idata int8_t direction = 1;
+volatile __idata int8_t direction = 2;
 
 int8_t HIDMouse[4] = {0x0, 0x0, 0x0, 0x0};
 
