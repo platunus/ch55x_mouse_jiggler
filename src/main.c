@@ -5,10 +5,11 @@
 #include <ch554_usb.h>
 #include <debug.h>
 
-#define TIMER0_INTERVAL 1000	// us -> 1ms interval
-
 #define JIGGLER_INTERVAL 50000		// ms
+#define JIGGLER_MOVING_DISTANCE 2	// pixels
 #define LED_ON_PERIOD 100			// ms
+
+#define TIMER0_INTERVAL 1000	// us -> 1ms interval
 
 // Indicator LED: P1.4
 #define LED_PIN_PORT      P1
@@ -20,23 +21,30 @@
 /*
 Memory map:
 EP0 Buf		00 - 07
-EP1 Buf 	40 - 7f
+EP1 Buf 	10 - 4f
 */
 __xdata __at (0x0000) uint8_t Ep0Buffer[DEFAULT_ENDP0_SIZE];	//Endpoint0 OUT&IN
-__xdata __at (0x0040) uint8_t Ep1Buffer[MAX_PACKET_SIZE];		//Endpoint1 IN
+__xdata __at (0x0010) uint8_t Ep1Buffer[MAX_PACKET_SIZE];		//Endpoint1 IN
 
 uint8_t SetupReq, SetupLen, UsbConfig;
 USB_SETUP_REQ SetupReqBuf;
 __code uint8_t *pDescr;
 
-volatile __idata uint8_t ready;
-volatile __idata uint8_t sent;
+volatile __idata uint8_t RepDescSent;
+volatile __idata uint8_t HIDDataSent;
 
-volatile __idata uint32_t mills = 0;
-volatile __idata int8_t direction = 2;
+volatile __idata uint32_t mills;
+volatile __idata int8_t deltaX = JIGGLER_MOVING_DISTANCE;
 
-int8_t HIDMouse[4] = {0x0, 0x0, 0x0, 0x0};
+int8_t HIDMouse[4] = 
+{
+	0x0,	// Button
+	0x0,	// X
+	0x0,	// Y
+	0x0		// Wheel
+};
 
+// Device Descriptor
 __code uint8_t DevDesc[18] = 
 {
 	0x12,				// bLength
@@ -55,6 +63,7 @@ __code uint8_t DevDesc[18] =
 	0x01				// bNumConfigurations
 };
 
+// Configuration Descriptor
 __code uint8_t CfgDesc[59] =
 {
 	// Device
@@ -96,49 +105,53 @@ __code uint8_t CfgDesc[59] =
 	0x0a,		// bInterval
 };
 
+// HID Report Descriptor
 __code uint8_t MouseRepDesc[52] =
 {
-	0x05, 0x01,					// USAGE_PAGE (Generic Desktop)
-	0x09, 0x02,					// USAGE (Mouse)
-	0xa1, 0x01,					// COLLECTION (Application)
-	0x09, 0x01,					//   USAGE (Pointer)
-	0xa1, 0x00,					//   COLLECTION (Physical)
-	0x05, 0x09,					//	  USAGE_PAGE (Button)
-	0x19, 0x01,					//	  USAGE_MINIMUM
-	0x29, 0x03,					//	  USAGE_MAXIMUM
-	0x15, 0x00,					//	  LOGICAL_MINIMUM (0)
-	0x25, 0x01,					//	  LOGICAL_MAXIMUM (1)
-	0x95, 0x03,					//	  REPORT_COUNT (3)
-	0x75, 0x01,					//	  REPORT_SIZE (1)
-	0x81, 0x02,					//	  INPUT (Data,Var,Abs)
-	0x95, 0x01,					//	  REPORT_COUNT (1)
-	0x75, 0x05,					//	  REPORT_SIZE (5)
-	0x81, 0x03,					//	  INPUT (Const,Var,Abs)
-	0x05, 0x01,					//	  USAGE_PAGE (Generic Desktop)
-	0x09, 0x30,					//	  USAGE (X)
-	0x09, 0x31,					//	  USAGE (Y)
-	0x09, 0x38,					//	  USAGE (Wheel)
-	0x15, 0x81,					//	  LOGICAL_MINIMUM (-127)
-	0x25, 0x7f,					//	  LOGICAL_MAXIMUM (127)
-	0x75, 0x08,					//	  REPORT_SIZE (8)
-	0x95, 0x03,					//	  REPORT_COUNT (3)
-	0x81, 0x06,					//	  INPUT (Data,Var,Rel)
-	0xc0,						//   END_COLLECTION
-	0xc0,						// END COLLECTION
+	0x05, 0x01,		// USAGE_PAGE (Generic Desktop)
+	0x09, 0x02,		// USAGE (Mouse)
+	0xa1, 0x01,		// COLLECTION (Application)
+	0x09, 0x01,		//   USAGE (Pointer)
+	0xa1, 0x00,		//   COLLECTION (Physical)
+	0x05, 0x09,		//	  USAGE_PAGE (Button)
+	0x19, 0x01,		//	  USAGE_MINIMUM
+	0x29, 0x03,		//	  USAGE_MAXIMUM
+	0x15, 0x00,		//	  LOGICAL_MINIMUM (0)
+	0x25, 0x01,		//	  LOGICAL_MAXIMUM (1)
+	0x95, 0x03,		//	  REPORT_COUNT (3)
+	0x75, 0x01,		//	  REPORT_SIZE (1)
+	0x81, 0x02,		//	  INPUT (Data,Var,Abs)
+	0x95, 0x01,		//	  REPORT_COUNT (1)
+	0x75, 0x05,		//	  REPORT_SIZE (5)
+	0x81, 0x03,		//	  INPUT (Const,Var,Abs)
+	0x05, 0x01,		//	  USAGE_PAGE (Generic Desktop)
+	0x09, 0x30,		//	  USAGE (X)
+	0x09, 0x31,		//	  USAGE (Y)
+	0x09, 0x38,		//	  USAGE (Wheel)
+	0x15, 0x81,		//	  LOGICAL_MINIMUM (-127)
+	0x25, 0x7f,		//	  LOGICAL_MAXIMUM (127)
+	0x75, 0x08,		//	  REPORT_SIZE (8)
+	0x95, 0x03,		//	  REPORT_COUNT (3)
+	0x81, 0x06,		//	  INPUT (Data,Var,Rel)
+	0xc0,			//   END_COLLECTION
+	0xc0,			// END COLLECTION
 };
 
-__code unsigned char LangDes[] = {0x04, 0x03, 0x09, 0x04};
+// String Descriptor (Language)
+__code unsigned char LangDesc[] = {0x04, 0x03, 0x09, 0x04};
 
-__code unsigned char ManufDes[] =
+// String Descriptor (Manufacturer)
+__code unsigned char ManufDesc[] =
 {
-	sizeof(ManufDes), 0x03,
+	sizeof(ManufDesc), 0x03,
 	'N', 0x00, 'S', 0x00, ' ', 0x00, 'T', 0x00, 'e', 0x00, 'c', 0x00, 'h', 0x00, ' ', 0x00, 
 	'R', 0x00, 'e', 0x00, 's', 0x00, 'e', 0x00, 'a', 0x00, 'r', 0x00, 'c', 0x00, 'h', 0x00
 };
 
-__code unsigned char ProdDes[] =
+// String Descritor (Product)
+__code unsigned char ProdDesc[] =
 {
-	sizeof(ProdDes), 0x03,
+	sizeof(ProdDesc), 0x03,
 	'M', 0x00, 'o', 0x00, 'u', 0x00, 's', 0x00, 'e', 0x00, ' ', 0x00,
 	'J', 0x00, 'i', 0x00, 'g', 0x00, 'g', 0x00, 'l', 0x00, 'e', 0x00, 'r', 0x00
 };
@@ -146,30 +159,23 @@ __code unsigned char ProdDes[] =
 
 void Timer0Init()
 {
-	T2MOD = (T2MOD | bTMR_CLK) & ~bT0_CLK;			// Fsys/12 = 2MHz
-	TMOD = TMOD | bT0_M0;							// Mode1: 16bit timer
-	PT0 = 0;										// Low priorty 
-	ET0 = 1;										// Interrupt enable
+	T2MOD = (T2MOD | bTMR_CLK) & ~bT0_CLK;				// Fsys/12 = 2MHz
+	TMOD = TMOD | bT0_M0;								// Mode1: 16bit timer
+	PT0 = 0;											// Low priorty 
+	ET0 = 1;											// Interrupt enable
 	TH0 = (0 - FREQ_SYS / 12 / 1000000 * TIMER0_INTERVAL ) >> 8; 
 	TL0 = (0 - FREQ_SYS / 12 / 1000000 * TIMER0_INTERVAL ) & 0xff; 
-	TR0 = 1;										// Timer0 start
+	TR0 = 1;											// Timer0 start
 }
 
-void Timer0_ISR(void) __interrupt (INT_NO_TMR0) 
+void Timer0InterruptHandler(void) __interrupt (INT_NO_TMR0) 
 {
 	TH0 = (0 - FREQ_SYS / 12 / 1000000 * TIMER0_INTERVAL ) >> 8; 
 	TL0 = (0 - FREQ_SYS / 12 / 1000000 * TIMER0_INTERVAL ) & 0xff; 
 	mills++;
 }
 
-/*******************************************************************************
-* Function Name  : USBDeviceInit()
-* Description    : USB device initialize
-* Input          : None
-* Output         : None
-* Return         : None
-*******************************************************************************/
-void USBDeviceInit()
+void USBInit()
 {
 	IE_USB = 0;
 	USB_CTRL = 0x00;
@@ -178,6 +184,7 @@ void USBDeviceInit()
 	UEP4_1_MOD = ~(bUEP4_RX_EN | bUEP4_TX_EN | bUEP1_RX_EN | bUEP1_BUF_MOD) | bUEP4_TX_EN;
 	UEP0_CTRL = UEP_R_RES_ACK | UEP_T_RES_NAK;
 	UEP1_CTRL = bUEP_T_TOG | UEP_T_RES_NAK;
+	UEP1_T_LEN = 0;
 
 	USB_DEV_AD = 0x00;
 	UDEV_CTRL = bUD_PD_DIS;
@@ -189,25 +196,7 @@ void USBDeviceInit()
 	IE_USB = 1;
 }
 
-/*******************************************************************************
-* Function Name  : Enp1IntIn()
-* Description    : 
-* Input          : None
-* Output         : None
-* Return         : None
-*******************************************************************************/
-void Enp1IntIn( )
-{
-	memcpy(Ep1Buffer, HIDMouse, sizeof(HIDMouse));
-	UEP1_T_LEN = sizeof(HIDMouse);
-	UEP1_CTRL = UEP1_CTRL & ~ MASK_UEP_T_RES | UEP_T_RES_ACK;
-}
-
-/*******************************************************************************
-* Function Name  : DeviceInterrupt()
-* Description    : USB Interrupt
-*******************************************************************************/
-void DeviceInterrupt( void ) __interrupt (INT_NO_USB)
+void USBInterruptHandler( void ) __interrupt (INT_NO_USB)
 {
 	uint8_t len;
 
@@ -217,8 +206,8 @@ void DeviceInterrupt( void ) __interrupt (INT_NO_USB)
 		{
 		case UIS_TOKEN_IN | 1:
 			UEP1_T_LEN = 0;
-			UEP1_CTRL = UEP1_CTRL & ~ MASK_UEP_T_RES | UEP_T_RES_NAK;
-			sent = 1;
+			UEP1_CTRL = UEP1_CTRL & ~MASK_UEP_T_RES | UEP_T_RES_NAK;
+			HIDDataSent = 1;
 			break;
 		case UIS_TOKEN_SETUP | 0:
 			len = USB_RX_LEN;
@@ -270,18 +259,18 @@ void DeviceInterrupt( void ) __interrupt (INT_NO_USB)
 						case 3:
 							if(UsbSetupBuf->wValueL == 0)
 							{
-								pDescr = LangDes;
-								len = sizeof(LangDes);
+								pDescr = LangDesc;
+								len = sizeof(LangDesc);
 							}
 							else if(UsbSetupBuf->wValueL == 1)
 							{
-								pDescr = ManufDes;
-								len = sizeof(ManufDes);
+								pDescr = ManufDesc;
+								len = sizeof(ManufDesc);
 							}
 							else if(UsbSetupBuf->wValueL == 2)
 							{
-								pDescr = ProdDes;
-								len = sizeof(ProdDes);
+								pDescr = ProdDesc;
+								len = sizeof(ProdDesc);
 							}
 							else
 							{
@@ -294,7 +283,7 @@ void DeviceInterrupt( void ) __interrupt (INT_NO_USB)
 							{
 								pDescr = MouseRepDesc;
 								len = sizeof(MouseRepDesc);
-								ready = 1;
+								RepDescSent = 1;
 							}
 							else
 							{
@@ -310,7 +299,7 @@ void DeviceInterrupt( void ) __interrupt (INT_NO_USB)
 							SetupLen = len;
 						}
 						len = SetupLen >= 8 ? 8 : SetupLen;
-						memcpy(Ep0Buffer,pDescr,len);
+						memcpy(Ep0Buffer, pDescr, len);
 						SetupLen -= len;
 						pDescr += len;
 						break;
@@ -335,10 +324,10 @@ void DeviceInterrupt( void ) __interrupt (INT_NO_USB)
 							switch( UsbSetupBuf->wIndexL )
 							{
 							case 0x81:
-								UEP1_CTRL = UEP1_CTRL & ~ ( bUEP_T_TOG | MASK_UEP_T_RES ) | UEP_T_RES_NAK;
+								UEP1_CTRL = UEP1_CTRL & ~( bUEP_T_TOG | MASK_UEP_T_RES ) | UEP_T_RES_NAK;
 								break;
 							case 0x01:
-								UEP1_CTRL = UEP1_CTRL & ~ ( bUEP_R_TOG | MASK_UEP_R_RES ) | UEP_R_RES_ACK;
+								UEP1_CTRL = UEP1_CTRL & ~( bUEP_R_TOG | MASK_UEP_R_RES ) | UEP_R_RES_ACK;
 								break;
 							default:
 								len = 0xff;
@@ -481,12 +470,14 @@ void DeviceInterrupt( void ) __interrupt (INT_NO_USB)
 
 void HIDValueHandle()
 {
-	HIDMouse[1] = direction;
-	direction = -direction;
+	HIDDataSent = 0;		
+	HIDMouse[1] = deltaX;
+	memcpy(Ep1Buffer, HIDMouse, sizeof(HIDMouse));
+	UEP1_T_LEN = sizeof(HIDMouse);
+	UEP1_CTRL = UEP1_CTRL & ~MASK_UEP_T_RES | UEP_T_RES_ACK;
+	while(HIDDataSent == 0) {}
 
-	sent = 0;		
-	Enp1IntIn();
-	while(sent == 0) {}
+	deltaX = - deltaX;
 }
 
 void LEDInit()
@@ -505,27 +496,39 @@ void LEDOff()
 	LED_PIN_PORT = LED_PIN_PORT & ~(1 << LED_PIN_NO);
 }
 
+void EnableGlobalInterrupt()
+{
+	EA = 1;
+}
+
+void WaitForUSB() {
+	RepDescSent = 0;
+	while(RepDescSent == 0) {};
+}
+
 main()
 {
 	CfgFsys();
+
 	mDelaymS(5);
-	USBDeviceInit();
-	LEDInit();
+
+	USBInit();
 	Timer0Init();
-	EA = 1;
-	UEP1_T_LEN = 0;
+	EnableGlobalInterrupt();
+	LEDInit();
 
-	ready = 0;
+	WaitForUSB();
 
+	mills = 0;
 	while(1)
 	{
-		if(ready && mills > JIGGLER_INTERVAL)
+		if ( mills > JIGGLER_INTERVAL )
 		{
 			HIDValueHandle();
 			LEDOn();
 			mills = 0;
 		}
-		else if (mills > LED_ON_PERIOD)
+		else if ( mills > LED_ON_PERIOD )
 		{
 			LEDOff();
 		}
