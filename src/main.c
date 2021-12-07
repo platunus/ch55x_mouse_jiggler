@@ -5,9 +5,10 @@
 #include <ch554_usb.h>
 #include <debug.h>
 
-#define TIMER0_INTERVAL 1000
-#define JIGGLER_INTERVAL 60000		// ms
-#define LED_OFF_COUNT 100			// ms
+#define TIMER0_INTERVAL 1000	// us -> 1ms interval
+
+#define JIGGLER_INTERVAL 50000		// ms
+#define LED_ON_PERIOD 100			// ms
 
 // Indicator LED: P1.4
 #define LED_PIN_PORT      P1
@@ -18,21 +19,20 @@
 
 /*
 Memory map:
-EP0 Buf		00 - 0f
+EP0 Buf		00 - 07
 EP1 Buf 	40 - 7f
 */
 __xdata __at (0x0000) uint8_t Ep0Buffer[DEFAULT_ENDP0_SIZE];	//Endpoint0 OUT&IN
 __xdata __at (0x0040) uint8_t Ep1Buffer[MAX_PACKET_SIZE];		//Endpoint1 IN
 
-uint8_t SetupReq,SetupLen,UsbConfig;
-__code uint8_t *pDescr;
+uint8_t SetupReq, SetupLen, UsbConfig;
 USB_SETUP_REQ SetupReqBuf;
+__code uint8_t *pDescr;
 
 volatile __idata uint8_t ready;
 volatile __idata uint8_t sent;
 
-volatile __idata uint16_t count = 0;
-volatile __idata int8_t trigger = 0;
+volatile __idata uint32_t mills = 0;
 volatile __idata int8_t direction = 2;
 
 int8_t HIDMouse[4] = {0x0, 0x0, 0x0, 0x0};
@@ -153,19 +153,13 @@ void Timer0Init()
 	TH0 = (0 - FREQ_SYS / 12 / 1000000 * TIMER0_INTERVAL ) >> 8; 
 	TL0 = (0 - FREQ_SYS / 12 / 1000000 * TIMER0_INTERVAL ) & 0xff; 
 	TR0 = 1;										// Timer0 start
-	count = 0;
 }
 
 void Timer0_ISR(void) __interrupt (INT_NO_TMR0) 
 {
 	TH0 = (0 - FREQ_SYS / 12 / 1000000 * TIMER0_INTERVAL ) >> 8; 
 	TL0 = (0 - FREQ_SYS / 12 / 1000000 * TIMER0_INTERVAL ) & 0xff; 
-	count++;
-	if (count > JIGGLER_INTERVAL)
-	{
-		trigger = 1;
-		count = 0;
-	}
+	mills++;
 }
 
 /*******************************************************************************
@@ -487,7 +481,6 @@ void DeviceInterrupt( void ) __interrupt (INT_NO_USB)
 
 void HIDValueHandle()
 {
-	trigger = 0;
 	HIDMouse[1] = direction;
 	direction = -direction;
 
@@ -522,16 +515,19 @@ main()
 	EA = 1;
 	UEP1_T_LEN = 0;
 
-	sent = 0;
 	ready = 0;
 
 	while(1)
 	{
-		if (count > LED_OFF_COUNT) LEDOff();
-		if(ready && trigger)
+		if(ready && mills > JIGGLER_INTERVAL)
 		{
 			HIDValueHandle();
 			LEDOn();
+			mills = 0;
+		}
+		else if (mills > LED_ON_PERIOD)
+		{
+			LEDOff();
 		}
 	}
 }
