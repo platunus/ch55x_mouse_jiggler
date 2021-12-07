@@ -477,7 +477,7 @@ void HIDValueHandle()
 	UEP1_CTRL = UEP1_CTRL & ~MASK_UEP_T_RES | UEP_T_RES_ACK;
 	while(HIDDataSent == 0) {}
 
-	deltaX = - deltaX;
+	deltaX = -deltaX;
 }
 
 void LEDInit()
