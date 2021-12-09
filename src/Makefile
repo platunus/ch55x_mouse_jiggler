@@ -16,6 +16,7 @@ EXTRA_FLAGS = --opt-code-speed
 
 C_FILES = \
 	main.c \
+	ch55x_mouse.c \
 	../ch554_sdcc/include/debug.c
 
 include ../ch554_sdcc/examples/Makefile.include
