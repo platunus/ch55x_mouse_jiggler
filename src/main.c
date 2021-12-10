@@ -12,9 +12,9 @@
 #define TIMER0_INTERVAL 1000	// us -> 1ms interval
 
 // Indicator LED: P1.4
-#define LED_PIN_PORT_MOD  P1_MOD_OC
-#define LED_PIN_NO        4
-SBIT(LED, 0x90, LED_PIN_NO);	// P1: 0x90
+#define LED_PIN_PORT_MOD 	P1_MOD_OC
+#define LED_PIN_NO       	4
+#define LED 				T2_
 
 volatile __idata uint32_t mills;
 volatile __idata int8_t deltaX = JIGGLER_MOVING_DISTANCE;
@@ -62,7 +62,7 @@ main()
 	{
 		if ( mills > JIGGLER_INTERVAL )
 		{
-			ch55x_mouse_move(deltaX, 0 , 0);
+			ch55x_mouse_move(deltaX, 0);
 			LED = 1;
 			mills = 0;
 			deltaX = -deltaX;

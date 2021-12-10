@@ -11,7 +11,9 @@
 #define MOUSE_LEFT_BUTTON	1
 #define MOUSE_RIGHT_BUTTON	2
 #define MOUSE_MIDDLE_BUTTON	4
-#define MOUSE_BUTTONS_MASK	0b00000111
+#define MOUSE_EXTEND1_BUTTON	8
+#define MOUSE_EXTEND2_BUTTON	16
+#define MOUSE_BUTTONS_MASK	0b00011111
 
 /*
 Memory map:
@@ -22,7 +24,8 @@ EP1 Buf     10 - 4f
 #define FIXED_ADDRESS_EP1_BUFFER    0x0010 
 
 void ch55x_mouse_init();
-void ch55x_mouse_move(int8_t x, int8_t y, int8_t wheel);
+void ch55x_mouse_move(int8_t delta_x, int8_t delta_y);
+void ch55x_mouse_scroll(int8_t delta);
 void ch55x_mouse_press(uint8_t buttons);
 void ch55x_mouse_release(uint8_t buttons);
 void ch55x_mouse_release_all();

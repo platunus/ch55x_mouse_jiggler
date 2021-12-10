@@ -447,9 +447,14 @@ void ch55x_mouse_init()
 	while(RepDescSent == 0) {};
 }
 
-void ch55x_mouse_move(int8_t x, int8_t y, int8_t wheel)
+void ch55x_mouse_move(int8_t delta_x, int8_t delta_y)
 {
-	HIDValueHandle(0, x, y, wheel);
+	HIDValueHandle(0, delta_x, delta_y, 0);
+}
+
+void ch55x_mouse_scroll(int8_t delta)
+{
+	HIDValueHandle(0, 0, 0, delta);
 }
 
 void ch55x_mouse_press(uint8_t buttons)
