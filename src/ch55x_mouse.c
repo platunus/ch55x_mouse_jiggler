@@ -441,9 +441,8 @@ void ch55x_mouse_init()
 	USB_INT_EN = bUIE_SUSPEND | bUIE_TRANSFER | bUIE_BUS_RST;
 	IE_USB = 1;
 
-	EA = 1;
-
 	RepDescSent = 0;
+	EA = 1;
 	while(RepDescSent == 0) {};
 }
 
