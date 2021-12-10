@@ -470,5 +470,6 @@ void ch55x_mouse_release(uint8_t buttons)
 
 void ch55x_mouse_release_all()
 {
-	HIDValueHandle(0, 0, 0, 0);
+	buttonsState = 0;
+	HIDValueHandle(buttonsState, 0, 0, 0);
 }
