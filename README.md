@@ -1,1 +1,1 @@
-# Mouse Jiggler for CH55x
+# Mouse Jiggler for CH55x (CH552/CH554/...)
